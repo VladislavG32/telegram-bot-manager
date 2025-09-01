@@ -35,10 +35,37 @@ if not GITHUB_TOKEN_VALUE:
 github_auth = Auth.Token(GITHUB_TOKEN_VALUE)
 g = Github(auth=github_auth)
 
+def check_repo_access(template_repo_name: str):
+    """Проверка доступа к репозиторию"""
+    try:
+        print(f"🔍 Проверяю доступ к репозиторию: {template_repo_name}")
+        
+        # Проверяем существование репозитория
+        repo = g.get_repo(template_repo_name)
+        print(f"✅ Репозиторий найден: {repo.html_url}")
+        print(f"   Видимость: {repo.visibility}")
+        print(f"   Владелец: {repo.owner.login}")
+        
+        # Проверяем права доступа
+        user = g.get_user()
+        print(f"   Текущий пользователь: {user.login}")
+        
+        return True
+        
+    except Exception as e:
+        print(f"❌ Ошибка доступа: {e}")
+        return False
+
 def create_repo_from_template(template_repo_name: str, new_repo_name: str, bot_token: str) -> Repository:
     try:
+        # Диагностика: проверяем доступ перед созданием
+        if not check_repo_access(template_repo_name):
+            raise Exception("Нет доступа к шаблонному репозиторию")
+        
         template_repo = g.get_repo(template_repo_name)
         user = g.get_user()
+        
+        print(f"🔄 Создаю репозиторий {new_repo_name} из шаблона {template_repo_name}")
         
         new_repo = user.create_repo_from_template(
             name=new_repo_name,
@@ -48,10 +75,12 @@ def create_repo_from_template(template_repo_name: str, new_repo_name: str, bot_t
         )
         
         logger.info(f"Repository {new_repo_name} created successfully from template {template_repo_name}")
+        print(f"✅ Репозиторий создан: {new_repo.html_url}")
         return new_repo
         
     except Exception as e:
         logger.error(f"Error creating repo from template: {e}")
+        print(f"❌ Ошибка при создании: {e}")
         raise Exception(f"Ошибка при создании репозитория: {str(e)}")
 
 def deploy_on_railway(repo_name: str, bot_token: str):
@@ -72,17 +101,21 @@ def deploy_on_railway(repo_name: str, bot_token: str):
             }
         }
         
+        print(f"🚀 Запускаю деплой для {repo_name}")
         response = requests.post(url, json=payload, headers=headers)
         
         if response.status_code == 201:
             logger.info(f"Deployment triggered successfully for {repo_name}")
+            print("✅ Деплой запущен успешно!")
             return True
         else:
             logger.error(f"Deployment failed: {response.status_code} - {response.text}")
+            print(f"❌ Ошибка деплоя: {response.status_code} - {response.text}")
             return False
             
     except Exception as e:
         logger.error(f"Error deploying to Railway: {e}")
+        print(f"❌ Ошибка при деплое: {e}")
         return False
 
 # Команда /start
@@ -193,6 +226,15 @@ def main():
         print(f"Ошибка: Отсутствуют переменные окружения: {missing_message}")
         return
 
+    # Диагностика при запуске
+    print("🔍 Запускаю диагностику...")
+    for template_name in TEMPLATES.values():
+        if not check_repo_access(template_name):
+            print("❌ Диагностика не пройдена! Проверьте настройки.")
+            return
+    
+    print("✅ Диагностика пройдена успешно!")
+
     try:
         application = Application.builder().token(os.getenv('MANAGER_BOT_TOKEN')).build()
 
@@ -210,14 +252,14 @@ def main():
         application.add_handler(conv_handler)
 
         logger.info("Bot started successfully")
-        print("Бот запущен успешно!")
+        print("🤖 Бот запущен успешно!")
         
         # Запускаем бота
         application.run_polling(allowed_updates=Update.ALL_TYPES)
         
     except Exception as e:
         logger.error(f"Failed to start bot: {e}")
-        print(f"Ошибка запуска бота: {e}")
+        print(f"❌ Ошибка запуска бота: {e}")
 
 if __name__ == '__main__':
     main()
