@@ -27,11 +27,11 @@ TEMPLATES = {
     # ... добавьте другие шаблоны
 }
 
-# Инициализируем клиент GitHub
-GITHUB_TOKEN_VALUE = os.getenv('GITHUB_API_TOKEN')
+# Инициализируем клиент GitHub с проверкой доступности токена
+GITHUB_TOKEN_VALUE = os.getenv('GITHUB_TOKEN') or os.getenv('GITHUB_API_TOKEN')
 if not GITHUB_TOKEN_VALUE:
-    logger.error("GITHUB_API_TOKEN is not set!")
-    raise ValueError("GitHub token is missing")
+    logger.error("GitHub token is not set! Check GITHUB_TOKEN or GITHUB_API_TOKEN variables")
+    raise ValueError("GitHub token is missing - check environment variables")
 
 github_auth = Auth.Token(GITHUB_TOKEN_VALUE)
 g = Github(auth=github_auth)
@@ -177,12 +177,21 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     # Проверяем что все переменные окружения загружены
-    required_vars = ['MANAGER_BOT_TOKEN', 'GITHUB_API_TOKEN', 'RAILWAY_API_TOKEN', 'GITHUB_USERNAME', 'RAILWAY_PROJECT_ID']
+    required_vars = ['MANAGER_BOT_TOKEN', 'RAILWAY_API_TOKEN', 'GITHUB_USERNAME', 'RAILWAY_PROJECT_ID']
+    
+    # Проверяем наличие хотя бы одного GitHub токена
+    github_token_vars = ['GITHUB_TOKEN', 'GITHUB_API_TOKEN']
+    has_github_token = any(os.getenv(var) for var in github_token_vars)
+    
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     
-    if missing_vars:
-        logger.error(f"Missing required environment variables: {missing_vars}")
-        print(f"Ошибка: Отсутствуют переменные окружения: {missing_vars}")
+    if missing_vars or not has_github_token:
+        missing_message = missing_vars.copy()
+        if not has_github_token:
+            missing_message.append('GITHUB_TOKEN or GITHUB_API_TOKEN')
+        
+        logger.error(f"Missing required environment variables: {missing_message}")
+        print(f"Ошибка: Отсутствуют переменные окружения: {missing_message}")
         return
 
     try:
