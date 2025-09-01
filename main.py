@@ -18,89 +18,72 @@ logger = logging.getLogger(__name__)
 # Состояния для ConversationHandler
 CHOOSING_TEMPLATE, GETTING_BOT_TOKEN, NAMING_BOT = range(3)
 
-# Ваши данные
-GITHUB_USERNAME = "VladislavG32"  # Например, "IvanIvanov"
+# Данные из переменных окружения
+GITHUB_USERNAME = os.getenv('GITHUB_USERNAME')
+RAILWAY_PROJECT_ID = os.getenv('RAILWAY_PROJECT_ID')
+
 TEMPLATES = {
-    "RPC": "VladislavG32/telegram-bot-rpc-template",  # Ссылка на ваш шаблонный репозиторий
+    "RPC": f"{GITHUB_USERNAME}/telegram-bot-rpc-template",
     # ... добавьте другие шаблоны
 }
-RAILWAY_PROJECT_ID = "2babb01d-99f2-47a4-b14b-1f6b3872cafc" # Найти можно в настройках проекта в Railway
 
 # Инициализируем клиент GitHub
-github_auth = Auth.Token(os.getenv('GITHUB_TOKEN'))
+github_auth = Auth.Token(os.getenv('GITHUB_API_TOKEN'))
 g = Github(auth=github_auth)
 
-# Функция для создания репозитория из шаблона
 def create_repo_from_template(template_repo_name: str, new_repo_name: str, bot_token: str) -> Repository:
-    template_repo = g.get_repo(template_repo_name)
-    user = g.get_user()
+    try:
+        template_repo = g.get_repo(template_repo_name)
+        user = g.get_user()
+        
+        new_repo = user.create_repo_from_template(
+            name=new_repo_name,
+            repo=template_repo,
+            private=True,
+            description=f"Auto-generated Telegram bot: {new_repo_name}"
+        )
+        
+        logger.info(f"Repository {new_repo_name} created successfully from template {template_repo_name}")
+        return new_repo
+        
+    except Exception as e:
+        logger.error(f"Error creating repo from template: {e}")
+        raise Exception(f"Ошибка при создании репозитория: {str(e)}")
 
-    # Создаем новый репозиторий из шаблона
-    new_repo = user.create_repo_from_template(
-        name=new_repo_name,
-        repo=template_repo,
-        private=True,
-        description=f"Auto-generated Telegram bot: {new_repo_name}"
-    )
-
-    # Здесь можно автоматически заменить токен в файле конфигурации нового репозитория.
-    # Например, прочитать файл config.py, заменить placeholder на реальный токен и записать обратно.
-    # Это сложный шаг, требующий работы с GitHub API для изменения файлов.
-    # Простой вариант: использовать переменные окружения на Railway, а не хардкодить токен в код.
-
-    # !!! Упрощенный подход: мы будем просто передавать токен как переменную окружения при деплое на Railway.
-    # А в коде шаблона бота должен быть код, который читает токен из переменной окружения, например:
-    # token = os.getenv('BOT_TOKEN')
-
-    return new_repo
-
-# Функция для деплоя на Railway через API
 def deploy_on_railway(repo_name: str, bot_token: str):
-    url = "https://api.railway.app/graphql/v2"
-    api_token = os.getenv('RAILWAY_API_TOKEN')
-    headers = {
-        "Authorization": f"Bearer {api_token}",
-        "Content-Type": "application/json"
-    }
-
-    # 1. Создаем новый сервис в проекте Railway, привязывая к нему репозиторий
-    query_create_service = """
-    mutation {
-        serviceCreate(
-            input: { name: "%s", projectId: "%s", source: { repo: "%s/%s" } }
-        ) {
-            id
-            name
+    """Упрощенная функция деплоя через Railway API"""
+    try:
+        # Простой способ: запустить деплой через API
+        url = f"https://api.railway.app/v2/projects/{RAILWAY_PROJECT_ID}/deployments"
+        headers = {
+            "Authorization": f"Bearer {os.getenv('RAILWAY_API_TOKEN')}",
+            "Content-Type": "application/json"
         }
-    }
-    """ % (repo_name, RAILWAY_PROJECT_ID, GITHUB_USERNAME, repo_name)
-
-    # 2. Добавляем переменную окружения BOT_TOKEN для этого сервиса
-    query_add_variable = """
-    mutation {
-        variableCreate(
-            input: { name: "BOT_TOKEN", value: "%s", serviceId: "%s" }
-        ) {
-            id
-            name
+        
+        payload = {
+            "branch": "main",
+            "meta": {
+                "repo": f"{GITHUB_USERNAME}/{repo_name}",
+                "trigger": "bot_creation"
+            }
         }
-    }
-    """ % (bot_token, "$serviceId") # Здесь будет сложнее, нужно получить ID созданного сервиса
-
-    # Реальный код GraphQL запроса будет более сложным и многошаговым.
-    # Это псевдокод, иллюстрирующий идею.
-
-    # На практике проще использовать Deployments API от Railway или их CLI.
-    # Альтернатива: настроить в шаблоне Webhook на Railway, чтобы деплой запускался автоматически при пуше в репозиторий.
-    # Тогда нам нужно лишь создать репо и запустить деплой вручную через API одним запросом.
-    response = requests.post(url, json={"query": query_create_service}, headers=headers)
-    # ... обработка ответа и второй запрос ...
-
-    logger.info(f"Deployment triggered for {repo_name}. Response: {response.json()}")
+        
+        response = requests.post(url, json=payload, headers=headers)
+        
+        if response.status_code == 201:
+            logger.info(f"Deployment triggered successfully for {repo_name}")
+            return True
+        else:
+            logger.error(f"Deployment failed: {response.status_code} - {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Error deploying to Railway: {e}")
+        return False
 
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    reply_keyboard = [list(TEMPLATES.keys())]  # Создаем клавиатуру из ключей нашего словаря шаблонов
+    reply_keyboard = [list(TEMPLATES.keys())]
     await update.message.reply_text(
         "Привет! Я бот, создающий других ботов.\n"
         "Выбери тип бота, которого хочешь создать:",
@@ -128,9 +111,9 @@ async def chosen_template(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Обработчик получения токена
 async def received_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    bot_token = update.message.text
-    # Простая валидация токена
-    if not bot_token.startswith('') or len(bot_token) < 20:
+    bot_token = update.message.text.strip()
+    # Правильная валидация токена
+    if not bot_token.startswith(('5', '6', '7', '8', '9')) or len(bot_token) < 20:
         await update.message.reply_text("Это не похоже на валидный токен бота. Попробуй еще раз.")
         return GETTING_BOT_TOKEN
 
@@ -140,7 +123,7 @@ async def received_bot_token(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 # Обработчик имени репозитория и финальный запуск
 async def received_repo_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    repo_name = update.message.text
+    repo_name = update.message.text.strip()
     template_key = context.user_data['chosen_template']
     bot_token = context.user_data['bot_token']
 
@@ -149,18 +132,33 @@ async def received_repo_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         # 1. Создаем репозиторий на GitHub
         new_repo = create_repo_from_template(TEMPLATES[template_key], repo_name, bot_token)
+        
         # 2. Запускаем деплой на Railway
-        deploy_on_railway(repo_name, bot_token)
+        deploy_success = deploy_on_railway(repo_name, bot_token)
 
-        await update.message.reply_text(
-            f"✅ Готово!\n"
-            f"Репозиторий: {new_repo.html_url}\n"
-            f"Деплой запущен. Проверить статус можно в панели Railway.\n"
-            f"Твой бот должен запуститься в ближайшие несколько минут."
-        )
+        if deploy_success:
+            await update.message.reply_text(
+                f"✅ Готово!\n"
+                f"Репозиторий: {new_repo.html_url}\n"
+                f"ДепLOY запущен. Проверить статус можно в панели Railway.\n"
+                f"Твой бот должен запуститься в ближайшие несколько минут."
+            )
+        else:
+            await update.message.reply_text(
+                f"⚠️ Репозиторий создан: {new_repo.html_url}\n"
+                f"Но возникли проблемы с автоматическим деплоем.\n"
+                f"Запустите деплой вручную в панели Railway."
+            )
+            
     except Exception as e:
         logger.error(f"Error during bot creation: {e}")
-        await update.message.reply_text(f"⚠️ Что-то пошло не так: {e}")
+        error_message = str(e)
+        if "404" in error_message:
+            await update.message.reply_text("⚠️ Ошибка: Шаблонный репозиторий не найден. Проверьте правильность ссылки на шаблон.")
+        elif "401" in error_message:
+            await update.message.reply_text("⚠️ Ошибка: Неверный GitHub токен. Проверьте права доступа.")
+        else:
+            await update.message.reply_text(f"⚠️ Что-то пошло не так: {error_message}")
 
     # Очищаем данные пользователя
     context.user_data.clear()
@@ -173,24 +171,40 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 def main():
-    # Создаем Application и передаем ему токен бота.
-    application = Application.builder().token(os.getenv('MANAGER_BOT_TOKEN')).build()
+    # Проверяем что все переменные окружения загружены
+    required_vars = ['MANAGER_BOT_TOKEN', 'GITHUB_TOKEN', 'RAILWAY_API_TOKEN', 'GITHUB_USERNAME', 'RAILWAY_PROJECT_ID']
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing_vars:
+        logger.error(f"Missing required environment variables: {missing_vars}")
+        print(f"Ошибка: Отсутствуют переменные окружения: {missing_vars}")
+        return
 
-    # Настраиваем обработчик диалога (ConversationHandler)
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
-        states={
-            CHOOSING_TEMPLATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, chosen_template)],
-            GETTING_BOT_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_bot_token)],
-            NAMING_BOT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_repo_name)],
-        },
-        fallbacks=[CommandHandler('cancel', cancel)],
-    )
+    try:
+        application = Application.builder().token(os.getenv('MANAGER_BOT_TOKEN')).build()
 
-    application.add_handler(conv_handler)
+        # Настраиваем обработчик диалога (ConversationHandler)
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', start)],
+            states={
+                CHOOSING_TEMPLATE: [MessageHandler(filters.TEXT & ~filters.COMMAND, chosen_template)],
+                GETTING_BOT_TOKEN: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_bot_token)],
+                NAMING_BOT: [MessageHandler(filters.TEXT & ~filters.COMMAND, received_repo_name)],
+            },
+            fallbacks=[CommandHandler('cancel', cancel)],
+        )
 
-    # Запускаем бота
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+        application.add_handler(conv_handler)
+
+        logger.info("Bot started successfully")
+        print("Бот запущен успешно!")
+        
+        # Запускаем бота
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        
+    except Exception as e:
+        logger.error(f"Failed to start bot: {e}")
+        print(f"Ошибка запуска бота: {e}")
 
 if __name__ == '__main__':
     main()
