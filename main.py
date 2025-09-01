@@ -23,8 +23,7 @@ GITHUB_USERNAME = os.getenv('GITHUB_USERNAME')
 RAILWAY_PROJECT_ID = os.getenv('RAILWAY_PROJECT_ID')
 
 TEMPLATES = {
-    "RPC": f"{GITHUB_USERNAME}/telegram-bot-rpc-template",
-    # ... добавьте другие шаблоны
+    "RPC": "VladislavG32/telegram-bot-rpc-template",
 }
 
 # Инициализируем клиент GitHub с проверкой доступности токена
