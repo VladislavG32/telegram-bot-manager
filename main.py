@@ -28,7 +28,12 @@ TEMPLATES = {
 }
 
 # Инициализируем клиент GitHub
-github_auth = Auth.Token(os.getenv('GITHUB_API_TOKEN'))
+GITHUB_TOKEN_VALUE = os.getenv('GITHUB_API_TOKEN')
+if not GITHUB_TOKEN_VALUE:
+    logger.error("GITHUB_API_TOKEN is not set!")
+    raise ValueError("GitHub token is missing")
+
+github_auth = Auth.Token(GITHUB_TOKEN_VALUE)
 g = Github(auth=github_auth)
 
 def create_repo_from_template(template_repo_name: str, new_repo_name: str, bot_token: str) -> Repository:
@@ -140,7 +145,7 @@ async def received_repo_name(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(
                 f"✅ Готово!\n"
                 f"Репозиторий: {new_repo.html_url}\n"
-                f"ДепLOY запущен. Проверить статус можно в панели Railway.\n"
+                f"Деплой запущен. Проверить статус можно в панели Railway.\n"
                 f"Твой бот должен запуститься в ближайшие несколько минут."
             )
         else:
@@ -172,7 +177,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     # Проверяем что все переменные окружения загружены
-    required_vars = ['MANAGER_BOT_TOKEN', 'GITHUB_TOKEN', 'RAILWAY_API_TOKEN', 'GITHUB_USERNAME', 'RAILWAY_PROJECT_ID']
+    required_vars = ['MANAGER_BOT_TOKEN', 'GITHUB_API_TOKEN', 'RAILWAY_API_TOKEN', 'GITHUB_USERNAME', 'RAILWAY_PROJECT_ID']
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     
     if missing_vars:
